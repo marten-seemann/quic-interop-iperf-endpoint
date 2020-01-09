@@ -1,0 +1,48 @@
+version: 2.1
+executors:
+  interop:
+    docker:
+      - image: circleci/buildpack-deps:stretch
+    environment:
+      IMAGE_NAME: martenseemann/quic-interop-iperf-endpoint
+
+jobs:
+  interop-build:
+    executor: interop
+    steps:
+      - checkout
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - run:
+          name: Build docker image
+          command: docker build . -t $IMAGE_NAME:latest --pull --build-arg CACHEBUST=$(date +%s)
+      - run:
+          name: Archive Docker image
+          command: docker save -o image.tar $IMAGE_NAME
+      - persist_to_workspace:
+          root: .
+          paths:
+            - ./image.tar
+  interop-publish:
+    executor: interop
+    steps:
+      - attach_workspace:
+          at: /tmp/workspace
+      - setup_remote_docker
+      - run:
+          name: Load archived Docker image 
+          command: docker load -i /tmp/workspace/image.tar
+      - run:
+          name: Publish quic-go-interop
+          command: |
+            echo "$DOCKERHUB_PASS" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+            docker push $IMAGE_NAME:latest
+
+workflows:
+  version: 2
+  build-master:
+    jobs:
+      - interop-build
+      - interop-publish:
+          requires:
+            - interop-build
